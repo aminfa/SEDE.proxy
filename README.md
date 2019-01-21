@@ -8,6 +8,10 @@ Build a runnable jar using gradle:
 
 `.gradlew shadowJar`
 
+## Download
+
+Download the runnable jar from [here].(https://github.com/aminfa/SEDE.proxy/releases/download/v1.0/ExecutorProxy-1.0.jar)
+
 ## Run
 
 Run while providing a port as the first argument:
