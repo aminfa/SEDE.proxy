@@ -1,6 +1,6 @@
-
 plugins {
-    id 'java-library'
+    id 'com.github.johnrengelman.shadow' version '4.0.3' apply true
+    id 'java'
 }
 
 dependencies {
@@ -28,4 +28,19 @@ dependencies {
 
 repositories {
     jcenter()
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'de.upb.sede.exec.ExecutorProxy'
+    }
+    destinationDir = file("$rootDir")
+}
+
+shadowJar {
+    baseName = 'ExecutorProxy'
+    classifier = null
+    version = "1.0"
+    destinationDir = file("$rootDir")
+
 }
