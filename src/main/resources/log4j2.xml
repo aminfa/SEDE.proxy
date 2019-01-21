@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="info">
+  <Properties>
+    <Property name="basePath">./</Property>
+  </Properties>
+ 
+  <Appenders>
+    <Console name="STDOUT">
+      <PatternLayout pattern="%d{HH:mm:ss.SSSS} %p %C{2.} [%t] %m%n"/>
+    </Console>
+    <File name="defaultfile" fileName="${basePath}/proxy.log">
+      <PatternLayout>
+        <pattern>%d{dd-MM HH:mm:ss.SSS} [%-5level] [%t] %c{1} - %msg%n</pattern>
+      </PatternLayout>
+    </File>
+  </Appenders>
+ 
+  <Loggers>
+    <Root level="debug">
+      <AppenderRef ref="STDOUT"/>
+      <AppenderRef ref="defaultfile"/>
+    </Root>
+  </Loggers>
+ 
+</Configuration>
