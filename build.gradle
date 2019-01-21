@@ -3,6 +3,8 @@ plugins {
     id 'java'
 }
 
+version = "2.0"
+
 dependencies {
     // Use JUnit test framework
     testImplementation 'junit:junit:4.12'
@@ -33,7 +35,7 @@ jar {
 shadowJar {
     baseName = 'ExecutorProxy'
     classifier = null
-    version = "1.0"
+    version = "2.0"
     destinationDir = file("$rootDir")
 
 }
