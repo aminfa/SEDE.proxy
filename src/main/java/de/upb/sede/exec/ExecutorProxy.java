@@ -1,13 +1,10 @@
 package de.upb.sede.exec;
 
-import com.google.common.base.Charsets;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-import org.apache.commons.io.IOUtils;
-import org.apache.logging.log4j.core.tools.picocli.CommandLine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,7 +29,7 @@ import java.util.concurrent.ThreadPoolExecutor;
  *                                                          This method will map the executor_id to the executor_address.
  *   -  GET; url=/mapping ; This method returns the current executor mappings in json format, e.g.: {"executor_id1" : "executor_address_1", "executor_id2": "executor_address_2"}
  *
- *   - POST/GET/PUT; url=/[executor_id]/.* ; This method forwards the request to the address looked up in the mapping. Returns 400 if the mapping doesn't contain the executor_id.
+ *   - POST/GET/PUT; url=/[.*]/[executor_id]/[.*] ; This method forwards the request to the address looked up in the mapping. Returns 400 if the mapping doesn't contain the executor_id.
  */
 public class ExecutorProxy {
 
@@ -42,7 +39,7 @@ public class ExecutorProxy {
     private final HttpServer server;
     private final int port;
 
-    private final static String URL_ENCODING =  Charsets.UTF_8.name();
+    private final static String URL_ENCODING =  "UTF-8";
 
     private final static String SIGNUP_HANDLE = "/signup/";
     private final static String GET_MAPPING_HANDLE = "/mapping";
@@ -166,13 +163,19 @@ public class ExecutorProxy {
         public void handle(HttpExchange source) throws IOException {
             String uri = source.getRequestURI().getPath().substring(1); // drop the first "/"
             logger.debug("Forward request received {}: url=`{}`", source.getRequestMethod(), uri);
-            if(!uri.contains("/")) {
-                logger.error("Cannot forward url=`{}`. Doesn't contain executorid as the first field.", uri);
+            int firstSlashPosition = uri.indexOf("/");
+            int secondSlashPosition = uri.indexOf("/", uri.indexOf("/") + 1);
+            if(firstSlashPosition == -1) {
+                logger.error("Cannot forward url=`{}`. Doesn't contain executorid as the second field.", uri);
                 source.sendResponseHeaders(404, 0);
                 source.getResponseBody().close();
                 return;
             }
-            String executorId = uri.substring(0, uri.indexOf("/"));
+            if(secondSlashPosition == -1) {
+                // no second slash. consider the rest of the uri as the executor id
+                secondSlashPosition = uri.length();
+            }
+            String executorId = uri.substring(firstSlashPosition + 1, secondSlashPosition);
             Optional<String> internalAddress = getMapping(executorId);
             if(internalAddress.isPresent()) {
                 try{
@@ -196,12 +199,12 @@ public class ExecutorProxy {
                      * Write request body into sink
                      */
                     ExtendedByteArrayOutputStream payload = new ExtendedByteArrayOutputStream();
-                    IOUtils.copy(source.getRequestBody(), payload);
+                    copy(source.getRequestBody(), payload);
                     sink.setRequestProperty("content-length", "" + payload.size());
                     sink.setFixedLengthStreamingMode(payload.size());
                     sink.setConnectTimeout(8000);
                     sink.connect();
-                    IOUtils.copy(payload.toInputStream(), sink.getOutputStream());
+                    copy(payload.toInputStream(), sink.getOutputStream());
 
                     /*
                      * Write return body into source
@@ -221,7 +224,7 @@ public class ExecutorProxy {
                         source.getResponseHeaders().put(returnHeader.getKey(), returnHeader.getValue());
                     }
                     source.sendResponseHeaders(sink_ResponceCode, 0);
-                    IOUtils.copy(sink.getInputStream(), source.getResponseBody());
+                    copy(sink.getInputStream(), source.getResponseBody());
                     sink.disconnect();
                     source.getResponseBody().close();
                     logger.debug("Forwarding finished. Current active threads: {} ", service.getActiveCount() );
@@ -261,6 +264,14 @@ public class ExecutorProxy {
 
     }
 
+    private void copy(InputStream input, OutputStream output) throws IOException {
+        byte[] buffer = new byte[2<<14];
+        int n;
+        final int EOF = -1;
+        while (EOF != (n = input.read(buffer))) {
+            output.write(buffer, 0, n);
+        }
+    }
 
     public static void main(String[] args) {
         int port = 8080;
