@@ -9,17 +9,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.InetSocketAddress;
-import java.net.URL;
-import java.net.URLDecoder;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.net.*;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.stream.Collectors;
 
 /**
  * A HTTP Server with a mapping from executor-id to http address.
@@ -43,6 +38,7 @@ public class ExecutorProxy {
 
     private final static String SIGNUP_HANDLE = "/signup/";
     private final static String GET_MAPPING_HANDLE = "/mapping";
+    private final static String HEARTBEAT_HANDLE = "/heartbeat";
 
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     private final ThreadPoolExecutor service;
@@ -62,6 +58,7 @@ public class ExecutorProxy {
         server.setExecutor(service);
         server.createContext(SIGNUP_HANDLE, new SignUpHandler());
         server.createContext(GET_MAPPING_HANDLE, new GetMappingHandler());
+        server.createContext(HEARTBEAT_HANDLE, new HeartbeatHandler());
         server.createContext("/", new ForwardToExecutor());
     }
 
@@ -73,6 +70,8 @@ public class ExecutorProxy {
     private synchronized void signup(String executorId, String executorAddress) {
         logger.info("Mapping `{}` to `{}`.", executorId, executorAddress);
         this.proxyMapping.put(executorId, executorAddress);
+        logger.info("Performing heartbeat.");
+        this.performHeartbeat();
     }
 
 
@@ -150,6 +149,124 @@ public class ExecutorProxy {
                 logger.error("Error handle of request " + url + " from entity " + requester + ":" + port + "\n", ex);
             }
         }
+    }
+
+    /**
+     * Handles getting the map.
+     */
+    private class HeartbeatHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange httpExchange) throws IOException {
+            try {
+                logger.info("Heartbeat requested with {}.", httpExchange.getRequestMethod());
+                if(httpExchange.getRequestMethod().equalsIgnoreCase("GET")) {
+                    logger.warn("Heartbeat requested with GET. Returning 405");
+                    byte[] returnMsg = "USE POST".getBytes();
+                    httpExchange.sendResponseHeaders(405, returnMsg.length);
+                    httpExchange.getResponseBody().write(returnMsg);
+                    httpExchange.getResponseBody().close();
+                } else {
+                    httpExchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
+                    httpExchange.getResponseHeaders().add("Content-Type", "text/plain");
+                    httpExchange.getResponseHeaders().add("Content-Type", "charset=UTF-8");
+                    List<String> removedExecutors = performHeartbeat();
+                    byte[] returnMsg = ("Performed Heartbeat. Removed: \n\t" +
+                            String.join("\n\t", removedExecutors)).getBytes();
+                    httpExchange.sendResponseHeaders(200, returnMsg.length);
+                    httpExchange.getResponseBody().write(returnMsg);
+                    httpExchange.getResponseBody().close();
+                }
+            } catch (RuntimeException ex) {
+                String requester = httpExchange.getRemoteAddress().getHostName();
+                String port = "" + httpExchange.getRemoteAddress().getPort();
+                String url = httpExchange.getRequestURI().getPath();
+                logger.error("Error handle of request " + url + " from entity " + requester + ":" + port + "\n", ex);
+            }
+        }
+
+    }
+
+    private synchronized List<String> performHeartbeat() {
+        logger.info("Performing HEARTBEAT.");
+        Iterator<String> idIterator = proxyMapping.keySet().iterator();
+        List<String> removedExecutors = new ArrayList<>();
+        while(idIterator.hasNext()) {
+            Thread worker = new Thread( () -> {
+                String executorId = idIterator.next();
+                Optional<String> internalAddress = getMapping(executorId);
+                if (!internalAddress.isPresent()) {
+                    idIterator.remove();
+                    removedExecutors.add(executorId);
+                    return;
+                }
+                String heartbeatUrl = "http://" + internalAddress.get() + "/cmd/" + executorId + "/heartbeat";
+                URL url = null;
+                try {
+                    url = new URL(heartbeatUrl);
+                } catch (MalformedURLException e) {
+                    logger.warn("Couldn't form heartbeat url: {}", heartbeatUrl, e);
+                    return;
+                }
+                logger.info("heartbeat: `{}`.", heartbeatUrl);
+                HttpURLConnection heartbeat = null;
+                try {
+                    heartbeat = (HttpURLConnection) url.openConnection();
+                } catch (IOException e) {
+                    logger.warn("Couldn't open connection to heartbeat url: {}. Removing executor.", heartbeatUrl, e);
+                    idIterator.remove();
+                    removedExecutors.add(executorId);
+                    return;
+                }
+                heartbeat.setDoOutput(true);
+                try {
+                    heartbeat.setRequestMethod("GET");
+                } catch (ProtocolException e) {
+                    logger.warn("Couldn't set protocol method: ", e);
+                    return;
+                }
+                try {
+                    heartbeat.setConnectTimeout(1000);
+                    heartbeat.connect();
+                } catch (IOException e) {
+                    logger.warn("Couldn't connect to {}.", executorId, e);
+                    idIterator.remove();
+                    removedExecutors.add(executorId);
+                    return;
+                }
+                int heartbeatResponseCode;
+                try {
+                    heartbeatResponseCode = heartbeat.getResponseCode();
+                } catch (IOException e) {
+                    logger.warn("Couldn't retrieve response code to {}.", executorId, e);
+                    idIterator.remove();
+                    removedExecutors.add(executorId);
+                    return;
+                }
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                try {
+                    copy(heartbeat.getInputStream(), out);
+                    String response = new String(out.toByteArray());
+                    if (!response.equals("true")) {
+                        throw new IllegalAccessException("Heartbeat response: " + response);
+                    }
+                } catch (Exception e) {
+                    logger.warn("Heartbeat response from executor wasn't true: {}. Removing it..", executorId, e);
+                    idIterator.remove();
+                    removedExecutors.add(executorId);
+                    return;
+                }
+                logger.debug("Heartbeat to {} finished successfully.", executorId);
+            });
+            worker.start();
+            try {
+                worker.join(2000);
+                worker.interrupt();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                worker.interrupt();
+            }
+        }
+        return removedExecutors;
     }
 
     private synchronized Optional<String> getMapping(String executorId) {
