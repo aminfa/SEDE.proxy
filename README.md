@@ -10,7 +10,7 @@ Build a runnable jar using gradle:
 
 ## Download
 
-Download the runnable jar from [here](https://github.com/aminfa/SEDE.proxy/releases/download/v2.0/ExecutorProxy-2.0.jar).
+Download the runnable jar from [here](https://github.com/aminfa/SEDE.proxy/releases/download/v3.0/ExecutorProxy-3.0.jar).
 
 ## Run
 
