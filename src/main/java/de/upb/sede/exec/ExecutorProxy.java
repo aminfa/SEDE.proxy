@@ -168,9 +168,8 @@ public class ExecutorProxy {
                     httpExchange.getResponseHeaders().add("Access-Control-Allow-Origin", "*");
                     httpExchange.getResponseHeaders().add("Content-Type", "text/plain");
                     httpExchange.getResponseHeaders().add("Content-Type", "charset=UTF-8");
-                    List<String> removedExecutors = performHeartbeat();
-                    byte[] returnMsg = ("Performed Heartbeat. Removed: \n\t" +
-                            String.join("\n\t", removedExecutors)).getBytes();
+                    performHeartbeat();
+                    byte[] returnMsg = ("Performed Heartbeat.").getBytes();
                     httpExchange.sendResponseHeaders(200, returnMsg.length);
                     httpExchange.getResponseBody().write(returnMsg);
                     httpExchange.getResponseBody().close();
@@ -185,12 +184,16 @@ public class ExecutorProxy {
 
     }
 
-    private synchronized List<String> performHeartbeat() {
+    private synchronized void performHeartbeat() {
         logger.info("Performing HEARTBEAT.");
-        Iterator<String> idIterator = proxyMapping.keySet().iterator();
-        List<String> removedExecutors = new ArrayList<>();
-        while(idIterator.hasNext()) {
-            Thread worker = new Thread( () -> {
+        Thread worker = new Thread( () -> {
+            Iterator<String> idIterator = proxyMapping.keySet().iterator();
+            List<String> removedExecutors = new ArrayList<>();
+            while(idIterator.hasNext()) {
+                if(Thread.currentThread().isInterrupted()) {
+                    // time ran out
+                    return;
+                }
                 String executorId = idIterator.next();
                 Optional<String> internalAddress = getMapping(executorId);
                 if (!internalAddress.isPresent()) {
@@ -255,17 +258,16 @@ public class ExecutorProxy {
                     return;
                 }
                 logger.debug("Heartbeat to {} finished successfully.", executorId);
-            });
-            worker.start();
-            try {
-                worker.join(2000);
-                worker.interrupt();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-                worker.interrupt();
             }
+        });
+        worker.start();
+        try {
+            worker.join(8000);
+            worker.interrupt();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+            worker.interrupt();
         }
-        return removedExecutors;
     }
 
     private synchronized Optional<String> getMapping(String executorId) {
