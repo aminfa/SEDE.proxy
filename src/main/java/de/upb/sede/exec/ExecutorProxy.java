@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
  *                                                          This method will map the executor_id to the executor_address.
  *   -  GET; url=/mapping ; This method returns the current executor mappings in json format, e.g.: {"executor_id1" : "executor_address_1", "executor_id2": "executor_address_2"}
  *
- *   - POST/GET/PUT; url=/[.*]/[executor_id]/[.*] ; This method forwards the request to the address looked up in the mapping. Returns 400 if the mapping doesn't contain the executor_id.
+ *   -  POST/GET/PUT; url=/[.*]/[executor_id]/[.*] ; This method forwards the request to the address looked up in the mapping. Returns 400 if the mapping doesn't contain the executor_id.
  */
 public class ExecutorProxy {
 
@@ -71,7 +71,6 @@ public class ExecutorProxy {
         logger.info("Mapping `{}` to `{}`.", executorId, executorAddress);
         this.proxyMapping.put(executorId, executorAddress);
         logger.info("Performing heartbeat.");
-        this.performHeartbeat();
     }
 
 
